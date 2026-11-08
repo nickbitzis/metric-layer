@@ -1,0 +1,152 @@
+# Natural language evaluation set. Each question has a gold metric query, or `clarify: true` when the right
+# answer is to ask a question back (ambiguous wording, a metric not in the catalog, or a dimension the metric
+# cannot be broken down by). "Today" is 2026-07-01; data covers 2025-01-01 to 2026-06-30.
+- question: What was gross revenue in 2025?
+  query: { metrics: [gross_revenue], time_range: { start: "2025-01-01", end: "2026-01-01" } }
+- question: GMV by country
+  query: { metrics: [gross_revenue], group_by: [customer__country] }
+- question: Monthly net revenue
+  query: { metrics: [net_revenue], grain: month }
+- question: Net revenue by month for 2026
+  query: { metrics: [net_revenue], grain: month, time_range: { start: "2026-01-01", end: "2027-01-01" } }
+- question: average order value by device
+  query: { metrics: [aov], group_by: [order__device] }
+- question: What is AOV in the US?
+  query: { metrics: [aov], filters: [{ dimension: customer__country, op: "=", value: US }] }
+- question: Weekly orders in Q2 2026
+  query: { metrics: [orders], grain: week, time_range: { start: "2026-04-01", end: "2026-07-01" } }
+- question: How many orders were cancelled last month?
+  query: { metrics: [cancelled_orders], time_range: { start: "2026-06-01", end: "2026-07-01" } }
+- question: cancellation rate by device
+  query: { metrics: [cancellation_rate], group_by: [order__device] }
+- question: Cancellation rate by month in 2025
+  query: { metrics: [cancellation_rate], grain: month, time_range: { start: "2025-01-01", end: "2026-01-01" } }
+- question: units sold by category
+  query: { metrics: [units_sold], group_by: [product__category] }
+- question: Items per order by country
+  query: { metrics: [items_per_order], group_by: [customer__country] }
+- question: average unit price by category
+  query: { metrics: [avg_unit_price], group_by: [product__category] }
+- question: How many active buyers did we have each month?
+  query: { metrics: [buyers], grain: month }
+- question: Trailing 28-day active buyers, weekly, since March 2026
+  query: { metrics: [active_buyers_28d], grain: week, time_range: { start: "2026-03-01", end: "2026-07-01" } }
+- question: monthly active buyers trend
+  query: { metrics: [active_buyers_28d], grain: month }
+- question: new signups by acquisition channel
+  query: { metrics: [new_customers], group_by: [customer__acquisition_channel] }
+- question: new customers per month in 2025
+  query: { metrics: [new_customers], grain: month, time_range: { start: "2025-01-01", end: "2026-01-01" } }
+- question: total customers by quarter
+  query: { metrics: [total_customers], grain: quarter }
+- question: customer base by segment, quarterly
+  query: { metrics: [total_customers], grain: quarter, group_by: [customer__segment] }
+- question: refund amount by reason
+  query: { metrics: [refund_amount], group_by: [refund__reason] }
+- question: number of refunded orders in 2025
+  query: { metrics: [refunded_orders], time_range: { start: "2025-01-01", end: "2026-01-01" } }
+- question: refund rate by customer segment
+  query: { metrics: [refund_rate], group_by: [customer__segment] }
+- question: refund rate for business buyers
+  query: { metrics: [refund_rate], filters: [{ dimension: customer__segment, op: "=", value: business }] }
+- question: conversion rate by traffic source
+  query: { metrics: [conversion_rate], group_by: [session__traffic_source] }
+- question: conversion rate on iOS
+  query: { metrics: [conversion_rate], filters: [{ dimension: session__device, op: "=", value: ios }] }
+- question: sessions by device in the last 90 days
+  query: { metrics: [sessions], group_by: [session__device], time_range: { start: "2026-04-02", end: "2026-07-01" } }
+- question: daily sessions in June 2026
+  query: { metrics: [sessions], grain: day, time_range: { start: "2026-06-01", end: "2026-07-01" } }
+- question: weekly conversion rate for paid search traffic
+  query: { metrics: [conversion_rate], grain: week,
+           filters: [{ dimension: session__traffic_source, op: "=", value: paid_search }] }
+- question: marketing spend by channel
+  query: { metrics: [marketing_spend], group_by: [marketing__channel] }
+- question: ad spend per month in 2025
+  query: { metrics: [marketing_spend], grain: month, time_range: { start: "2025-01-01", end: "2026-01-01" } }
+- question: ROAS by quarter
+  query: { metrics: [roas], grain: quarter }
+- question: return on ad spend in H1 2026
+  query: { metrics: [roas], time_range: { start: "2026-01-01", end: "2026-07-01" } }
+- question: gross revenue from electronics in Germany
+  query:
+    metrics: [gross_revenue]
+    filters:
+      - { dimension: product__category, op: "=", value: electronics }
+      - { dimension: customer__country, op: "=", value: DE }
+- question: net revenue by country excluding the US
+  query: { metrics: [net_revenue], group_by: [customer__country],
+           filters: [{ dimension: customer__country, op: "!=", value: US }] }
+- question: gross revenue by seller region for pro sellers
+  query: { metrics: [gross_revenue], group_by: [seller__region],
+           filters: [{ dimension: seller__tier, op: "=", value: pro }] }
+- question: units sold on android vs ios
+  query: { metrics: [units_sold], group_by: [order__device],
+           filters: [{ dimension: order__device, op: in, value: [android, ios] }] }
+- question: GMV in the UK and Canada
+  query: { metrics: [gross_revenue], filters: [{ dimension: customer__country, op: in, value: [CA, GB] }] }
+- question: shipping fees by month
+  query: { metrics: [shipping_revenue], grain: month }
+- question: orders and gross revenue by device
+  query: { metrics: [orders, gross_revenue], group_by: [order__device] }
+- question: AOV and units per order by country in 2026
+  query: { metrics: [aov, items_per_order], group_by: [customer__country],
+           time_range: { start: "2026-01-01", end: "2027-01-01" } }
+- question: How did conversion rate trend over the last 6 months?
+  query: { metrics: [conversion_rate], grain: month, time_range: { start: "2026-01-01", end: "2026-07-01" } }
+- question: orders by status
+  query: { metrics: [orders], group_by: [order__status] }
+- question: gross revenue for email acquisition
+  query: { metrics: [gross_revenue], filters: [{ dimension: customer__acquisition_channel, op: "=", value: email }] }
+- question: new customers from paid search by country
+  query: { metrics: [new_customers], group_by: [customer__country],
+           filters: [{ dimension: customer__acquisition_channel, op: "=", value: paid_search }] }
+- question: Net revenue year over year
+  query: { metrics: [net_revenue], grain: year }
+- question: orders per week in the last 8 weeks
+  query: { metrics: [orders], grain: week, time_range: { start: "2026-05-06", end: "2026-07-01" } }
+- question: gross sales by category for April 2026
+  query: { metrics: [gross_revenue], group_by: [product__category],
+           time_range: { start: "2026-04-01", end: "2026-05-01" } }
+- question: buyers in France between January and March 2026
+  query: { metrics: [buyers], filters: [{ dimension: customer__country, op: "=", value: FR }],
+           time_range: { start: "2026-01-01", end: "2026-04-01" } }
+- question: What were total customers at the end of each month in 2026?
+  query: { metrics: [total_customers], grain: month, time_range: { start: "2026-01-01", end: "2027-01-01" } }
+- question: average order value for orders on web last month
+  query: { metrics: [aov], filters: [{ dimension: order__device, op: "=", value: web }],
+           time_range: { start: "2026-06-01", end: "2026-07-01" } }
+- question: units sold to business customers in Q1 2026
+  query: { metrics: [units_sold], filters: [{ dimension: customer__segment, op: "=", value: business }],
+           time_range: { start: "2026-01-01", end: "2026-04-01" } }
+- question: Which traffic source has the best conversion rate?
+  query: { metrics: [conversion_rate], group_by: [session__traffic_source] }
+# Questions where the right answer is a clarification.
+- question: average basket size by product category
+  clarify: true  # orders do not reach products: an order has many categories
+- question: refunds issued by seller region
+  clarify: true  # refunds are order-level and do not reach sellers
+- question: revenue by country
+  clarify: true  # gross or net
+- question: how are customers doing
+  clarify: true
+- question: refunds last quarter
+  clarify: true  # amount, count, or rate
+- question: What is our churn rate?
+  clarify: true  # not in the catalog
+- question: profit margin by category
+  clarify: true  # not in the catalog
+- question: conversion rate by product category
+  clarify: true  # sessions do not reach products
+- question: ROAS by country
+  clarify: true  # marketing spend has no customer
+- question: show me performance
+  clarify: true
+- question: refund rate by reason
+  clarify: true  # the denominator (gross revenue) has no refund reason
+- question: orders by product category
+  clarify: true  # an order can span categories
+- question: sessions by seller tier
+  clarify: true
+- question: What is the revenue trend?
+  clarify: true

@@ -1,0 +1,371 @@
+# Semantic model for Larkspur Market, a made-up two-sided marketplace.
+# Entities are join keys. A foreign entity points at the one model where that entity is primary, which makes
+# the join many_to_one. The compiler only follows many_to_one joins, so a dimension lookup can never fan out.
+version: 1
+name: larkspur_market
+description: Orders, items, refunds, traffic, and marketing spend for the Larkspur Market marketplace.
+
+semantic_models:
+  - name: customers
+    table: customers
+    description: One row per registered buyer account.
+    owner: growth-analytics
+    entities:
+      - { name: customer, type: primary, expr: customer_id }
+    agg_time_dimension: signup_date
+    dimensions:
+      - { name: signup_date, type: time, expr: signup_date, description: Date the account was created. }
+      - { name: country, type: categorical, expr: country, description: Billing country (ISO code).,
+          synonyms: [country, countries, market, markets] }
+      - { name: acquisition_channel, type: categorical, expr: acquisition_channel,
+          description: Channel that brought the customer in., synonyms: [acquisition channel, acquisition source] }
+      - { name: segment, type: categorical, expr: segment, description: Consumer or business buyer.,
+          synonyms: [segment, customer segment, customer type] }
+    measures:
+      - { name: customer_signups, agg: count, expr: customer_id, description: Accounts created. }
+
+  - name: sellers
+    table: sellers
+    description: One row per seller storefront.
+    owner: marketplace-ops
+    entities:
+      - { name: seller, type: primary, expr: seller_id }
+    dimensions:
+      - { name: region, type: categorical, expr: region, description: Seller operating region.,
+          synonyms: [seller region, region, regions] }
+      - { name: tier, type: categorical, expr: tier, description: Standard or pro seller plan.,
+          synonyms: [seller tier, tier, seller plan] }
+    measures: []
+
+  - name: products
+    table: products
+    description: One row per product listing.
+    owner: catalog-team
+    entities:
+      - { name: product, type: primary, expr: product_id }
+      - { name: seller, type: foreign, expr: seller_id }
+    dimensions:
+      - { name: category, type: categorical, expr: category, description: Top-level product category.,
+          synonyms: [category, categories, product category, product line] }
+    measures: []
+
+  - name: orders
+    table: orders
+    description: One row per order. Order-level fields only; line items live in order_items.
+    owner: commerce-analytics
+    entities:
+      - { name: order, type: primary, expr: order_id }
+      - { name: customer, type: foreign, expr: customer_id }
+    agg_time_dimension: ordered_at
+    dimensions:
+      - { name: ordered_at, type: time, expr: ordered_at, description: Time the order was placed. }
+      - { name: status, type: categorical, expr: status, description: "completed, pending, or cancelled.",
+          synonyms: [order status, status] }
+      - { name: device, type: categorical, expr: device, description: Device the order was placed on.,
+          synonyms: [device, devices, platform] }
+    measures:
+      - { name: order_rows, agg: count, expr: order_id, description: Orders placed. }
+      - { name: buyer_ids, agg: count_distinct, expr: customer_id, description: Distinct customers who ordered. }
+      - { name: shipping_fees, agg: sum, expr: shipping_fee, description: Shipping fees charged. }
+
+  - name: order_items
+    table: order_items
+    description: One row per line item. Finer grain than orders.
+    owner: commerce-analytics
+    entities:
+      - { name: order_item, type: primary, expr: order_item_id }
+      - { name: order, type: foreign, expr: order_id }
+      - { name: product, type: foreign, expr: product_id }
+    agg_time_dimension: order__ordered_at
+    dimensions: []
+    measures:
+      - { name: item_revenue, agg: sum, expr: "quantity * unit_price - discount_amount",
+          description: "Item price times quantity, net of discounts. Excludes shipping." }
+      - { name: units, agg: sum, expr: quantity, description: Units sold. }
+      - { name: unit_price_avg, agg: average, expr: unit_price, description: Mean unit price across line items. }
+
+  - name: refunds
+    table: refunds
+    description: One row per refund. Refunds are partial and an order can have several.
+    owner: finance
+    entities:
+      - { name: refund, type: primary, expr: refund_id }
+      - { name: order, type: foreign, expr: order_id }
+    agg_time_dimension: refunded_at
+    dimensions:
+      - { name: refunded_at, type: time, expr: refunded_at, description: Time the refund was issued. }
+      - { name: reason, type: categorical, expr: reason, description: Refund reason code.,
+          synonyms: [refund reason, reason, reasons] }
+    measures:
+      - { name: refund_total, agg: sum, expr: amount, description: Amount refunded. }
+      - { name: refunded_order_ids, agg: count_distinct, expr: order_id, description: Distinct orders refunded. }
+
+  - name: sessions
+    table: sessions
+    description: One row per site or app visit. customer_id is NULL for anonymous visitors.
+    owner: growth-analytics
+    entities:
+      - { name: session, type: primary, expr: session_id }
+      - { name: customer, type: foreign, expr: customer_id }
+    agg_time_dimension: started_at
+    dimensions:
+      - { name: started_at, type: time, expr: started_at, description: Session start time. }
+      - { name: device, type: categorical, expr: device, description: Device used for the visit.,
+          synonyms: [device, devices, platform] }
+      - { name: traffic_source, type: categorical, expr: traffic_source, description: Where the visit came from.,
+          synonyms: [traffic source, source, sources, traffic channel] }
+    measures:
+      - { name: session_rows, agg: count, expr: session_id, description: Visits. }
+      - { name: converted_sessions, agg: sum, expr: "CASE WHEN converted THEN 1 ELSE 0 END",
+          description: Visits that ended in an order. }
+
+  - name: marketing
+    table: marketing_spend
+    description: Daily paid marketing spend by channel.
+    owner: growth-analytics
+    entities: []
+    agg_time_dimension: spend_date
+    dimensions:
+      - { name: spend_date, type: time, expr: spend_date, description: Day the spend was booked. }
+      - { name: channel, type: categorical, expr: channel, description: Paid marketing channel.,
+          synonyms: [marketing channel, spend channel, channel, channels] }
+    measures:
+      - { name: spend, agg: sum, expr: amount, description: Marketing spend in USD. }
+
+metrics:
+  - name: gross_revenue
+    label: Gross revenue
+    type: simple
+    measure: item_revenue
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Item revenue net of discounts on orders that were not cancelled. Excludes shipping and refunds.
+    owner: finance
+    format: currency
+    synonyms: [gross revenue, gmv, gross merchandise value, gross sales, sales]
+
+  - name: refund_amount
+    label: Refunds issued
+    type: simple
+    measure: refund_total
+    description: Money refunded, by the date the refund was issued.
+    owner: finance
+    format: currency
+    synonyms: [refund amount, refunded amount, refund dollars, money refunded, refunds issued]
+
+  - name: net_revenue
+    label: Net revenue
+    type: derived
+    expr: gross_revenue - refund_amount
+    description: Gross revenue minus refunds issued in the same period.
+    owner: finance
+    format: currency
+    synonyms: [net revenue, net sales, revenue after refunds]
+
+  - name: orders
+    label: Orders
+    type: simple
+    measure: order_rows
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Orders placed that were not cancelled.
+    owner: commerce-analytics
+    format: number
+    synonyms: [orders, order count, number of orders, order volume, purchases]
+
+  - name: cancelled_orders
+    label: Cancelled orders
+    type: simple
+    measure: order_rows
+    filter: [{ dimension: order__status, op: "=", value: cancelled }]
+    description: Orders that were cancelled before fulfilment.
+    owner: commerce-analytics
+    format: number
+    synonyms: [cancelled orders, canceled orders, cancellations]
+
+  - name: cancellation_rate
+    label: Cancellation rate
+    type: ratio
+    numerator: { measure: order_rows, filter: [{ dimension: order__status, op: "=", value: cancelled }] }
+    denominator: { measure: order_rows }
+    description: Cancelled orders divided by all orders placed.
+    owner: commerce-analytics
+    format: percent
+    synonyms: [cancellation rate, cancel rate, share of orders cancelled]
+
+  - name: aov
+    label: Average order value
+    type: ratio
+    numerator: { measure: item_revenue, filter: [{ dimension: order__status, op: "!=", value: cancelled }] }
+    denominator: { measure: order_rows, filter: [{ dimension: order__status, op: "!=", value: cancelled }] }
+    description: Gross revenue divided by orders. Computed as a ratio of sums, never an average of averages.
+    owner: finance
+    format: currency
+    synonyms: [average order value, aov, basket size, average basket, revenue per order]
+
+  - name: units_sold
+    label: Units sold
+    type: simple
+    measure: units
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Units on orders that were not cancelled.
+    owner: commerce-analytics
+    format: number
+    synonyms: [units sold, units, items sold, quantity sold]
+
+  - name: items_per_order
+    label: Units per order
+    type: ratio
+    numerator: { measure: units, filter: [{ dimension: order__status, op: "!=", value: cancelled }] }
+    denominator: { measure: order_rows, filter: [{ dimension: order__status, op: "!=", value: cancelled }] }
+    description: Units sold divided by orders.
+    owner: commerce-analytics
+    format: decimal
+    synonyms: [units per order, items per order, basket depth]
+
+  - name: avg_unit_price
+    label: Average unit price
+    type: simple
+    measure: unit_price_avg
+    description: Mean unit price across line items (not weighted by quantity).
+    owner: catalog-team
+    format: currency
+    synonyms: [average unit price, average item price, avg price, average price]
+
+  - name: buyers
+    label: Buyers
+    type: simple
+    measure: buyer_ids
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Distinct customers with at least one order that was not cancelled. Not additive across periods.
+    owner: growth-analytics
+    format: number
+    synonyms: [buyers, active buyers, unique buyers, purchasing customers, customers who ordered]
+
+  - name: active_buyers_28d
+    label: Active buyers (trailing 28 days)
+    type: cumulative
+    measure: buyer_ids
+    window: 28 days
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Distinct buyers in the 28 days ending on the last day of each period.
+    owner: growth-analytics
+    format: number
+    synonyms: [trailing 28 day active buyers, 28 day active buyers, rolling 28 day buyers, l28 buyers,
+               monthly active buyers, mab]
+
+  - name: new_customers
+    label: New customers
+    type: simple
+    measure: customer_signups
+    description: Accounts created in the period, by signup date.
+    owner: growth-analytics
+    format: number
+    synonyms: [new customers, signups, sign ups, new signups, registrations, new accounts]
+
+  - name: total_customers
+    label: Total customers
+    type: cumulative
+    measure: customer_signups
+    description: All accounts created up to the end of each period.
+    owner: growth-analytics
+    format: number
+    synonyms: [total customers, cumulative customers, customer base, running total of customers]
+
+  - name: refunded_orders
+    label: Refunded orders
+    type: simple
+    measure: refunded_order_ids
+    description: Distinct orders with at least one refund issued in the period.
+    owner: finance
+    format: number
+    synonyms: [refunded orders, orders refunded, number of refunded orders]
+
+  - name: refund_rate
+    label: Refund rate
+    type: ratio
+    numerator: { measure: refund_total }
+    denominator: { measure: item_revenue, filter: [{ dimension: order__status, op: "!=", value: cancelled }] }
+    description: Refunds issued divided by gross revenue in the same period.
+    owner: finance
+    format: percent
+    synonyms: [refund rate, refunds as a share of revenue, refund ratio]
+
+  - name: sessions
+    label: Sessions
+    type: simple
+    measure: session_rows
+    description: Site and app visits, including anonymous ones.
+    owner: growth-analytics
+    format: number
+    synonyms: [sessions, visits, traffic, site visits]
+
+  - name: conversion_rate
+    label: Conversion rate
+    type: ratio
+    numerator: { measure: converted_sessions }
+    denominator: { measure: session_rows }
+    description: Share of sessions that ended in an order.
+    owner: growth-analytics
+    format: percent
+    synonyms: [conversion rate, conversion, session conversion, cvr, convert]
+
+  - name: marketing_spend
+    label: Marketing spend
+    type: simple
+    measure: spend
+    description: Paid marketing spend.
+    owner: growth-analytics
+    format: currency
+    synonyms: [marketing spend, ad spend, spend, advertising spend, marketing cost]
+
+  - name: roas
+    label: Return on ad spend
+    type: derived
+    expr: gross_revenue / marketing_spend
+    description: Gross revenue divided by marketing spend. Only metric_time is shared, so it has no other dimensions.
+    owner: growth-analytics
+    format: decimal
+    synonyms: [roas, return on ad spend, return on advertising spend, revenue per ad dollar]
+
+  - name: shipping_revenue
+    label: Shipping fees
+    type: simple
+    measure: shipping_fees
+    filter: [{ dimension: order__status, op: "!=", value: cancelled }]
+    description: Shipping fees charged on orders that were not cancelled.
+    owner: finance
+    format: currency
+    synonyms: [shipping revenue, shipping fees, shipping income, delivery fees]
+
+# Words that match several metrics. The offline matcher asks which one was meant.
+ambiguous_terms:
+  revenue: [gross_revenue, net_revenue]
+  customers: [buyers, new_customers, total_customers]
+  refunds: [refund_amount, refunded_orders, refund_rate]
+  performance: [gross_revenue, orders, conversion_rate]
+
+# Values people type that differ from what is stored.
+value_synonyms:
+  US: [us, usa, united states, america, american]
+  GB: [uk, united kingdom, britain, british, gb, england]
+  DE: [germany, german, de]
+  FR: [france, french]
+  CA: [canada, canadian]
+  AU: [australia, australian]
+  NA: [north america, north american]
+  EU: [europe, european, eu]
+  APAC: [apac, asia pacific, asia]
+  ios: [ios, iphone]
+  android: [android]
+  web: [web, desktop, browser]
+  paid_search: [paid search, search ads, sem]
+  business: [business, b2b, business buyers]
+  consumer: [consumer, consumers]
+  pro: [pro sellers, pro tier]
+  standard: [standard sellers, standard tier]
+
+preaggregations:
+  - name: daily_item_revenue
+    model: order_items
+    measures: [item_revenue, units]
+    dimensions: [order__status, order__device, product__category, customer__country, seller__region]
+    grain: day

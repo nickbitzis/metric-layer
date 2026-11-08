@@ -1,0 +1,176 @@
+# Hand-written reference SQL for metric queries. Each reference was written directly against the raw tables,
+# without looking at compiler output. The suite runs the compiled query twice (with and without the
+# pre-aggregation table) and fails if either result differs from the reference.
+- name: gross revenue, total
+  query: { metrics: [gross_revenue] }
+  sql: |
+    SELECT SUM(oi.quantity * oi.unit_price - oi.discount_amount)
+    FROM order_items oi JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.status <> 'cancelled'
+
+- name: gross and net revenue by country (items and refunds at different grains)
+  query: { metrics: [gross_revenue, net_revenue], group_by: [customer__country] }
+  sql: |
+    WITH g AS (
+      SELECT c.country, SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS gross
+      FROM order_items oi JOIN orders o ON o.order_id = oi.order_id JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.status <> 'cancelled' GROUP BY 1),
+    r AS (
+      SELECT c.country, SUM(r.amount) AS refunded
+      FROM refunds r JOIN orders o ON o.order_id = r.order_id JOIN customers c ON c.customer_id = o.customer_id
+      GROUP BY 1)
+    SELECT g.country, g.gross, g.gross - COALESCE(r.refunded, 0) FROM g LEFT JOIN r USING (country)
+
+- name: net revenue by month (refunds booked in the month issued)
+  query: { metrics: [net_revenue], grain: month }
+  sql: |
+    WITH g AS (
+      SELECT CAST(date_trunc('month', o.ordered_at) AS DATE) AS m, SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS v
+      FROM order_items oi JOIN orders o ON o.order_id = oi.order_id WHERE o.status <> 'cancelled' GROUP BY 1),
+    r AS (SELECT CAST(date_trunc('month', refunded_at) AS DATE) AS m, SUM(amount) AS v FROM refunds GROUP BY 1)
+    SELECT COALESCE(g.m, r.m), COALESCE(g.v, 0) - COALESCE(r.v, 0) FROM g FULL JOIN r ON g.m = r.m
+
+- name: average order value by month in 2025 (ratio of sums)
+  query: { metrics: [aov], grain: month, time_range: { start: "2025-01-01", end: "2026-01-01" } }
+  sql: |
+    WITH per_order AS (
+      SELECT o.order_id, o.ordered_at, SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS rev
+      FROM orders o JOIN order_items oi ON oi.order_id = o.order_id
+      WHERE o.status <> 'cancelled' AND o.ordered_at >= '2025-01-01' AND o.ordered_at < '2026-01-01'
+      GROUP BY 1, 2)
+    SELECT CAST(date_trunc('month', ordered_at) AS DATE), SUM(rev) / COUNT(*) FROM per_order GROUP BY 1
+
+- name: cancellation rate by order device
+  query: { metrics: [cancellation_rate, cancelled_orders], group_by: [order__device] }
+  sql: |
+    SELECT device, AVG(CASE WHEN status = 'cancelled' THEN 1.0 ELSE 0 END),
+           COUNT(*) FILTER (WHERE status = 'cancelled')
+    FROM orders GROUP BY 1
+
+- name: conversion rate by customer country (anonymous sessions kept as NULL)
+  query: { metrics: [conversion_rate, sessions], group_by: [customer__country] }
+  sql: |
+    SELECT c.country, AVG(CASE WHEN s.converted THEN 1.0 ELSE 0 END), COUNT(*)
+    FROM sessions s LEFT JOIN customers c ON c.customer_id = s.customer_id GROUP BY 1
+
+- name: sessions by traffic source, weekly, March 2026
+  query: { metrics: [sessions], group_by: [session__traffic_source], grain: week,
+           time_range: { start: "2026-03-01", end: "2026-04-01" } }
+  sql: |
+    SELECT CAST(date_trunc('week', started_at) AS DATE), traffic_source, COUNT(*)
+    FROM sessions WHERE started_at >= '2026-03-01' AND started_at < '2026-04-01' GROUP BY 1, 2
+
+- name: distinct buyers by month (count distinct, not additive)
+  query: { metrics: [buyers, orders], grain: month }
+  sql: |
+    SELECT CAST(date_trunc('month', ordered_at) AS DATE), COUNT(DISTINCT customer_id), COUNT(*)
+    FROM orders WHERE status <> 'cancelled' GROUP BY 1
+
+- name: trailing 28 day active buyers, daily, June 2026
+  query: { metrics: [active_buyers_28d], grain: day, time_range: { start: "2026-06-01", end: "2026-07-01" } }
+  sql: |
+    WITH days AS (SELECT CAST(d AS DATE) AS d FROM generate_series(TIMESTAMP '2026-06-01', TIMESTAMP '2026-06-30',
+                  INTERVAL 1 DAY) AS t(d))
+    SELECT d, (SELECT COUNT(DISTINCT customer_id) FROM orders
+               WHERE status <> 'cancelled' AND ordered_at >= d - INTERVAL 27 DAY AND ordered_at < d + INTERVAL 1 DAY)
+    FROM days
+
+- name: trailing 28 day active buyers by country, weekly, Q2 2026
+  query: { metrics: [active_buyers_28d], grain: week, group_by: [customer__country],
+           time_range: { start: "2026-04-06", end: "2026-06-29" } }
+  sql: |
+    WITH weeks AS (SELECT CAST(w AS DATE) AS w FROM generate_series(TIMESTAMP '2026-04-06', TIMESTAMP '2026-06-22',
+                   INTERVAL 7 DAY) AS t(w))
+    SELECT w, c.country, COUNT(DISTINCT o.customer_id)
+    FROM weeks JOIN orders o ON o.ordered_at >= w + INTERVAL 7 DAY - INTERVAL 28 DAY AND o.ordered_at < w + INTERVAL 7 DAY
+    JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.status <> 'cancelled'
+    GROUP BY 1, 2
+
+- name: total customers (all-time cumulative) by quarter in 2026
+  query: { metrics: [total_customers], grain: quarter, time_range: { start: "2026-01-01", end: "2026-07-01" } }
+  sql: |
+    SELECT CAST(q AS DATE), (SELECT COUNT(*) FROM customers WHERE signup_date < q + INTERVAL 3 MONTH)
+    FROM (VALUES (DATE '2026-01-01'), (DATE '2026-04-01')) AS t(q)
+
+- name: refund rate by customer segment
+  query: { metrics: [refund_rate], group_by: [customer__segment] }
+  sql: |
+    WITH g AS (
+      SELECT c.segment, SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS gross
+      FROM order_items oi JOIN orders o ON o.order_id = oi.order_id JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.status <> 'cancelled' GROUP BY 1),
+    r AS (SELECT c.segment, SUM(r.amount) AS refunded FROM refunds r JOIN orders o ON o.order_id = r.order_id
+          JOIN customers c ON c.customer_id = o.customer_id GROUP BY 1)
+    SELECT g.segment, CAST(r.refunded AS DOUBLE) / g.gross FROM g JOIN r USING (segment)
+
+- name: return on ad spend by month
+  query: { metrics: [roas, marketing_spend], grain: month }
+  sql: |
+    WITH g AS (
+      SELECT CAST(date_trunc('month', o.ordered_at) AS DATE) AS m, SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS rev
+      FROM order_items oi JOIN orders o ON o.order_id = oi.order_id WHERE o.status <> 'cancelled' GROUP BY 1),
+    s AS (SELECT CAST(date_trunc('month', spend_date) AS DATE) AS m, SUM(amount) AS spend FROM marketing_spend GROUP BY 1)
+    SELECT s.m, CAST(g.rev AS DOUBLE) / s.spend, s.spend FROM s JOIN g ON g.m = s.m
+
+- name: gross revenue by seller region, US and Canada buyers, excluding books
+  query:
+    metrics: [gross_revenue]
+    group_by: [seller__region]
+    filters:
+      - { dimension: customer__country, op: in, value: [US, CA] }
+      - { dimension: product__category, op: "!=", value: books }
+  sql: |
+    SELECT se.region, SUM(oi.quantity * oi.unit_price - oi.discount_amount)
+    FROM order_items oi JOIN orders o ON o.order_id = oi.order_id JOIN customers c ON c.customer_id = o.customer_id
+    JOIN products p ON p.product_id = oi.product_id JOIN sellers se ON se.seller_id = p.seller_id
+    WHERE o.status <> 'cancelled' AND c.country IN ('US', 'CA') AND p.category <> 'books'
+    GROUP BY 1
+
+- name: units sold and units per order by country (numerator and denominator from different tables)
+  query: { metrics: [units_sold, items_per_order], group_by: [customer__country] }
+  sql: |
+    WITH u AS (
+      SELECT c.country, SUM(oi.quantity) AS units
+      FROM order_items oi JOIN orders o ON o.order_id = oi.order_id JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.status <> 'cancelled' GROUP BY 1),
+    n AS (SELECT c.country, COUNT(*) AS n FROM orders o JOIN customers c ON c.customer_id = o.customer_id
+          WHERE o.status <> 'cancelled' GROUP BY 1)
+    SELECT u.country, u.units, CAST(u.units AS DOUBLE) / n.n FROM u JOIN n USING (country)
+
+- name: refunds and refunded orders by reason in 2025
+  query: { metrics: [refund_amount, refunded_orders], group_by: [refund__reason],
+           time_range: { start: "2025-01-01", end: "2026-01-01" } }
+  sql: |
+    SELECT reason, SUM(amount), COUNT(DISTINCT order_id) FROM refunds
+    WHERE refunded_at >= '2025-01-01' AND refunded_at < '2026-01-01' GROUP BY 1
+
+- name: average unit price by category (average measure)
+  query: { metrics: [avg_unit_price], group_by: [product__category] }
+  sql: |
+    SELECT p.category, AVG(oi.unit_price) FROM order_items oi JOIN products p ON p.product_id = oi.product_id GROUP BY 1
+
+- name: new customers by acquisition channel, yearly
+  query: { metrics: [new_customers], group_by: [customer__acquisition_channel], grain: year }
+  sql: |
+    SELECT CAST(date_trunc('year', signup_date) AS DATE), acquisition_channel, COUNT(*) FROM customers GROUP BY 1, 2
+
+- name: shipping fees and orders by device for business buyers
+  query:
+    metrics: [shipping_revenue, orders]
+    group_by: [order__device]
+    filters: [{ dimension: customer__segment, op: "=", value: business }]
+  sql: |
+    SELECT o.device, SUM(o.shipping_fee), COUNT(*)
+    FROM orders o JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.status <> 'cancelled' AND c.segment = 'business' GROUP BY 1
+
+- name: gross revenue by category and device, daily, last week of June 2026 (pre-aggregation path)
+  query: { metrics: [gross_revenue, units_sold], group_by: [product__category, order__device], grain: day,
+           time_range: { start: "2026-06-24", end: "2026-07-01" } }
+  sql: |
+    SELECT CAST(date_trunc('day', o.ordered_at) AS DATE), p.category, o.device,
+           SUM(oi.quantity * oi.unit_price - oi.discount_amount), SUM(oi.quantity)
+    FROM order_items oi JOIN orders o ON o.order_id = oi.order_id JOIN products p ON p.product_id = oi.product_id
+    WHERE o.status <> 'cancelled' AND o.ordered_at >= '2026-06-24' AND o.ordered_at < '2026-07-01'
+    GROUP BY 1, 2, 3

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metric Layer</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>Metric Layer</h1>
+  <span class="muted sub">Larkspur Market semantic model: metrics defined once, compiled to SQL</span>
+  <span class="muted sub right" id="info"></span>
+</header>
+<main>
+  <section class="panel c12" id="ask-panel">
+    <h2>Ask a question</h2>
+    <form id="ask" class="searchbar">
+      <input id="question" type="text" autocomplete="off" placeholder="gross revenue by country in 2026" aria-label="Question">
+      <button type="submit">Ask</button>
+    </form>
+    <div class="examples muted" id="examples"></div>
+    <div id="interp"></div>
+  </section>
+
+  <section class="panel c4" id="catalog-panel">
+    <h2>Metric catalog</h2>
+    <input id="filter" type="search" placeholder="Filter metrics" aria-label="Filter metrics">
+    <div id="catalog"></div>
+  </section>
+
+  <section class="c8 stack">
+    <div class="panel">
+      <h2>Query builder</h2>
+      <div class="field"><span class="lbl">Metrics</span><div id="metric-picks" class="picks"></div></div>
+      <div class="field"><span class="lbl">Group by <span class="muted">(dimensions not reachable from every picked metric are disabled)</span></span>
+        <div id="dim-picks" class="picks"></div></div>
+      <div class="form">
+        <label>Time grain<select id="grain"><option value="">none</option><option>day</option><option>week</option><option>month</option><option>quarter</option><option>year</option></select></label>
+        <label>From<input id="start" type="date"></label>
+        <label>To (exclusive)<input id="end" type="date"></label>
+      </div>
+      <div class="field"><span class="lbl">Filters</span>
+        <div class="form">
+          <label>Dimension<select id="f-dim"></select></label>
+          <label>Operator<select id="f-op"><option value="=">=</option><option value="!=">!=</option><option value="in">in</option><option value="not_in">not in</option></select></label>
+          <label>Value<select id="f-val" multiple size="1"></select></label>
+          <button type="button" class="ghost" id="f-add">Add filter</button>
+        </div>
+        <div id="filters" class="picks"></div>
+      </div>
+      <div class="actions">
+        <button type="button" id="run">Run query</button>
+        <button type="button" class="ghost" id="explain">Explain</button>
+        <span id="status" class="muted"></span>
+      </div>
+      <div id="error"></div>
+    </div>
+
+    <div class="panel">
+      <div class="row"><h2>Result</h2>
+        <label class="inline">Chart<select id="chart-metric"></select></label></div>
+      <div id="chart"></div>
+      <div id="table" class="scroll"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Compiled SQL and join path</h2>
+      <div id="plan"></div>
+      <pre id="sql" class="muted">Run a query to see the SQL.</pre>
+    </div>
+  </section>
+</main>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
